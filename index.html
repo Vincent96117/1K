@@ -2,143 +2,107 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>HUNTER V178 | 瞬時爆發監控</title>
+    <title>1K EXPLOSION | V178 MONITOR</title>
     <style>
-        body { background: #050505; color: #e0e0e0; font-family: 'PingFang TC', sans-serif; margin: 0; padding: 15px; }
+        body { background: #050505; color: #e0e0e0; font-family: sans-serif; padding: 15px; }
         .header { display: flex; gap: 20px; background: #111; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 15px; }
         .market-card { flex: 1; text-align: center; }
-        .market-card h3 { margin: 0; color: #888; font-size: 14px; }
-        .price { font-size: 22px; font-weight: bold; color: #f2a900; margin: 5px 0; }
-        .change { font-size: 14px; }
-        .up { color: #00ff88; } .down { color: #ff3344; }
-        
-        table { width: 100%; border-collapse: collapse; background: #111; border-radius: 8px; overflow: hidden; }
-        th { background: #1a1a1a; color: #f2a900; padding: 12px; text-align: left; font-size: 14px; border-bottom: 2px solid #333; }
-        td { padding: 12px; border-bottom: 1px solid #222; font-size: 15px; }
-        .symbol-name { font-weight: bold; color: #fff; }
-        .timestamp { color: #888; font-family: monospace; }
-        .score-tag { padding: 4px 8px; border-radius: 4px; font-weight: bold; background: #333; }
-        .high-score { background: #f2a900; color: #000; }
+        .price { font-size: 22px; font-weight: bold; color: #f2a900; }
+        .up { color: #00ff88; font-weight: bold; } .down { color: #ff3344; }
+        table { width: 100%; border-collapse: collapse; background: #111; }
+        th { background: #1a1a1a; color: #f2a900; padding: 12px; text-align: left; }
+        td { padding: 12px; border-bottom: 1px solid #222; }
+        .trigger-tag { background: #ff3344; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; animation: blink 0.8s infinite; }
+        .score-box { font-weight: bold; font-size: 18px; color: #f2a900; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
-
     <div class="header">
-        <div class="market-card" id="BTC-card">
-            <h3>BTC / USDT</h3>
-            <div class="price" id="btc-price">--</div>
-            <div class="change" id="btc-change">--</div>
-        </div>
-        <div class="market-card" id="ETH-card">
-            <h3>ETH / USDT</h3>
-            <div class="price" id="eth-price">--</div>
-            <div class="change" id="eth-change">--</div>
-        </div>
+        <div id="market-data" style="display:contents;"></div>
     </div>
-
-    <h3>🎯 瞬時爆發觀察名單 (1m 雙K > 1.5%)</h3>
+    <h3>🚀 瞬時爆發名單 (1m 單根或雙根 > 1.5%)</h3>
     <table>
         <thead>
             <tr>
-                <th>偵測時間</th>
+                <th>觸發時間</th>
                 <th>幣種</th>
-                <th>觸發漲幅</th>
-                <th>V178 即時評分</th>
+                <th>1m 爆發力</th>
+                <th>V178 評分</th>
                 <th>當前價格</th>
             </tr>
         </thead>
-        <tbody id="watchlist">
-            </tbody>
+        <tbody id="watchlist"></tbody>
     </table>
 
 <script>
     const watchlistSymbols = new Set();
+    let btcChange = 0;
 
-    // 取得大盤數據
-    async function updateMarket() {
+    async function getMarket() {
         try {
             const res = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr?symbols=["BTCUSDT","ETHUSDT"]');
             const data = await res.json();
-            data.forEach(coin => {
-                const isBTC = coin.symbol === "BTCUSDT";
-                const priceEl = document.getElementById(isBTC ? 'btc-price' : 'eth-price');
-                const changeEl = document.getElementById(isBTC ? 'btc-change' : 'eth-change');
-                const change = parseFloat(coin.priceChangePercent).toFixed(2);
-                
-                priceEl.innerText = parseFloat(coin.lastPrice).toLocaleString();
-                changeEl.innerText = `${change}%`;
-                changeEl.className = `change ${change >= 0 ? 'up' : 'down'}`;
+            let html = '';
+            data.forEach(c => {
+                if(c.symbol === "BTCUSDT") btcChange = parseFloat(c.priceChangePercent);
+                html += `<div class="market-card"><h3>${c.symbol.replace('USDT','')}</h3><div class="price">${parseFloat(c.lastPrice).toLocaleString()}</div><div class="${parseFloat(c.priceChangePercent)>=0?'up':'down'}">${c.priceChangePercent}%</div></div>`;
             });
-        } catch (e) {}
+            document.getElementById('market-data').innerHTML = html;
+        } catch(e) {}
     }
 
-    // 監控 1分K 爆發
-    async function checkExplosion() {
+    async function scanExplosion() {
         try {
             const res = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
-            const allCoins = await res.json();
-            // 只抓成交量前 50 的幣種，避免雜訊
-            const topCoins = allCoins.sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 50);
+            const all = await res.json();
+            // 排除你不想看的幣種
+            const filtered = all.filter(c => !['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','BNBUSDT','BNXUSDT'].includes(c.symbol));
+            // 縮小範圍到成交量前 80 名，確保有流動性
+            const top80 = filtered.sort((a,b) => b.quoteVolume - a.quoteVolume).slice(0, 80);
 
-            for (let coin of topCoins) {
-                const symbol = coin.symbol;
-                if (watchlistSymbols.has(symbol)) {
-                    updateExistingScore(symbol, coin.lastPrice);
-                    continue;
-                }
-
-                // 抓取最近 3 根 1分K
-                const klineRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1m&limit=3`);
-                const klines = await klineRes.json();
+            for (let coin of top80) {
+                // 抓取最近 2 根 1m K線
+                const kRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${coin.symbol}&interval=1m&limit=2`);
+                const k = await kRes.json();
                 
-                if (klines.length < 2) continue;
+                const k1_open = parseFloat(k[0][1]);
+                const k1_close = parseFloat(k[0][4]);
+                const k2_open = parseFloat(k[1][1]);
+                const k2_close = parseFloat(k[1][4]);
 
-                // 計算最後兩根 K 線的累計漲幅 (Open of K1 to Close of K2)
-                const openPrice = parseFloat(klines[0][1]);
-                const closePrice = parseFloat(klines[1][4]);
-                const growth = ((closePrice - openPrice) / openPrice) * 100;
+                const k2_growth = ((k2_close - k2_open) / k2_open) * 100; // 單根爆發
+                const double_k_growth = ((k2_close - k1_open) / k1_open) * 100; // 雙根爆發
 
-                if (growth >= 1.5) {
-                    addToWatchlist(symbol, growth.toFixed(2), coin.lastPrice);
+                // 篩選條件：單根 > 1.5% 或 雙根 > 1.5%
+                if ((k2_growth >= 1.5 || double_k_growth >= 1.5) && !watchlistSymbols.has(coin.symbol)) {
+                    watchlistSymbols.add(coin.symbol);
+                    
+                    // 計算進入時的 V178 評分 (相對強度)
+                    const rs = (parseFloat(coin.priceChangePercent) - btcChange) * 10;
+                    const finalScore = Math.floor(rs + 20);
+
+                    const row = `<tr id="row-${coin.symbol}">
+                        <td style="color:#888">${new Date().toLocaleTimeString()}</td>
+                        <td><b>${coin.symbol.replace('USDT','')}</b></td>
+                        <td class="up">+${Math.max(k2_growth, double_k_growth).toFixed(2)}% <span class="trigger-tag">爆發</span></td>
+                        <td><span id="score-${coin.symbol}" class="score-box">${finalScore}</span></td>
+                        <td id="price-${coin.symbol}">${coin.lastPrice}</td>
+                    </tr>`;
+                    document.getElementById('watchlist').insertAdjacentHTML('afterbegin', row);
+                } else if (watchlistSymbols.has(coin.symbol)) {
+                    // 如果已在名單，更新價格和分數
+                    document.getElementById(`price-${coin.symbol}`).innerText = coin.lastPrice;
+                    const rs = (parseFloat(coin.priceChangePercent) - btcChange) * 10;
+                    document.getElementById(`score-${coin.symbol}`).innerText = Math.floor(rs + 20);
                 }
             }
-        } catch (e) {}
+        } catch(e) {}
     }
 
-    function addToWatchlist(symbol, growth, price) {
-        watchlistSymbols.add(symbol);
-        const now = new Date();
-        const timeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
-        
-        const row = `<tr id="row-${symbol}">
-            <td class="timestamp">${timeStr}</td>
-            <td class="symbol-name">${symbol.replace('USDT','')}</td>
-            <td class="up">+${growth}%</td>
-            <td><span id="score-${symbol}" class="score-tag">計算中...</span></td>
-            <td id="price-${symbol}">${parseFloat(price).toFixed(4)}</td>
-        </tr>`;
-        
-        document.getElementById('watchlist').insertAdjacentHTML('afterbegin', row);
-    }
-
-    // V178 簡易模擬評分 (基於波動與量能)
-    function updateExistingScore(symbol, price) {
-        const scoreEl = document.getElementById(`score-${symbol}`);
-        const priceEl = document.getElementById(`price-${symbol}`);
-        if (!scoreEl) return;
-
-        priceEl.innerText = parseFloat(price).toFixed(4);
-        
-        // 模擬 V178 邏輯：隨機模擬即時承接力評分 60~99
-        const mockScore = Math.floor(Math.random() * 40) + 60;
-        scoreEl.innerText = mockScore;
-        scoreEl.className = `score-tag ${mockScore > 85 ? 'high-score' : ''}`;
-    }
-
-    setInterval(updateMarket, 3000);
-    setInterval(checkExplosion, 5000);
-    updateMarket();
-    checkExplosion();
+    setInterval(getMarket, 3000);
+    setInterval(scanExplosion, 4000); // 每 4 秒掃描一次，反應更快
+    getMarket(); scanExplosion();
 </script>
 </body>
 </html>
