@@ -2,45 +2,38 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>V178 HUNTER | 手動監控版</title>
+    <title>V178 HUNTER | 準確價格版</title>
     <style>
-        body { background: #050505; color: #e0e0e0; font-family: 'PingFang TC', sans-serif; padding: 20px; text-align: center; }
+        body { background: #050505; color: #e0e0e0; font-family: sans-serif; padding: 20px; text-align: center; }
         .header { display: flex; justify-content: center; gap: 40px; background: #111; padding: 20px; border-radius: 12px; border: 1px solid #333; margin-bottom: 20px; }
-        .market-card { min-width: 150px; }
-        .price { font-size: 24px; font-weight: bold; color: #f2a900; margin-top: 5px; }
+        .market-card { min-width: 180px; }
+        .price { font-size: 26px; font-weight: bold; color: #f2a900; margin-top: 5px; }
         .up { color: #00ff88; } .down { color: #ff3344; }
-        
-        #startBtn { 
-            background: #f2a900; color: #000; border: none; padding: 15px 40px; font-size: 18px; 
-            font-weight: bold; border-radius: 8px; cursor: pointer; margin-bottom: 30px; transition: 0.3s;
-        }
-        #startBtn:hover { background: #ffd04d; transform: scale(1.05); }
-        #startBtn:disabled { background: #444; color: #888; cursor: not-allowed; }
-
-        .status-bar { color: #888; margin-bottom: 10px; font-size: 14px; }
+        #startBtn { background: #f2a900; color: #000; border: none; padding: 15px 40px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-bottom: 30px; }
+        #startBtn:disabled { background: #444; color: #888; }
         table { width: 100%; border-collapse: collapse; background: #111; margin-top: 10px; text-align: left; }
         th { background: #1a1a1a; color: #f2a900; padding: 15px; border-bottom: 2px solid #333; }
-        td { padding: 15px; border-bottom: 1px solid #222; font-size: 16px; }
+        td { padding: 15px; border-bottom: 1px solid #222; }
         .trigger-tag { background: #ff3344; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
     </style>
 </head>
 <body>
 
-    <div class="header" id="market-header">
+    <div class="header">
         <div class="market-card">
             <div>BTC / USDT</div>
-            <div id="btc-price" class="price">--</div>
+            <div id="btc-price" class="price">載入中...</div>
             <div id="btc-chg">--</div>
         </div>
         <div class="market-card">
             <div>ETH / USDT</div>
-            <div id="eth-price" class="price">--</div>
+            <div id="eth-price" class="price">載入中...</div>
             <div id="eth-chg">--</div>
         </div>
     </div>
 
     <button id="startBtn" onclick="startMonitoring()">🚀 開始 V178 實時監控</button>
-    <div id="status" class="status-bar">目前狀態：等待指令</div>
+    <div id="status" style="color:#888; margin-bottom:10px;">目前狀態：等待指令</div>
 
     <table>
         <thead>
@@ -52,8 +45,7 @@
                 <th>當前價格</th>
             </tr>
         </thead>
-        <tbody id="watchlist">
-            </tbody>
+        <tbody id="watchlist"></tbody>
     </table>
 
 <script>
@@ -61,35 +53,40 @@
     let isRunning = false;
     let btcChange = 0;
 
-    // 取得大盤即時行情
+    // 修正後的價格抓取邏輯
     async function updateMarket() {
-        const res = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr?symbols=["BTCUSDT","ETHUSDT"]');
-        const data = await res.json();
-        data.forEach(c => {
-            const isBTC = c.symbol === "BTCUSDT";
-            if(isBTC) btcChange = parseFloat(c.priceChangePercent);
-            document.getElementById(isBTC ? 'btc-price' : 'eth-price').innerText = parseFloat(c.lastPrice).toLocaleString();
-            const chgEl = document.getElementById(isBTC ? 'btc-chg' : 'eth-chg');
-            chgEl.innerText = `${parseFloat(c.priceChangePercent).toFixed(2)}%`;
-            chgEl.className = parseFloat(c.priceChangePercent) >= 0 ? 'up' : 'down';
-        });
+        try {
+            // 直接指定 BTC 和 ETH，不從大清單找，避免對錯位
+            const res = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr?symbols=["BTCUSDT","ETHUSDT"]');
+            const data = await res.json();
+            
+            data.forEach(c => {
+                const isBTC = (c.symbol === "BTCUSDT");
+                const price = parseFloat(c.lastPrice).toLocaleString(undefined, {minimumFractionDigits: 2});
+                const chg = parseFloat(c.priceChangePercent).toFixed(2);
+                
+                if(isBTC) btcChange = parseFloat(c.priceChangePercent);
+                
+                document.getElementById(isBTC ? 'btc-price' : 'eth-price').innerText = price;
+                const chgEl = document.getElementById(isBTC ? 'btc-chg' : 'eth-chg');
+                chgEl.innerText = `${chg}%`;
+                chgEl.className = chg >= 0 ? 'up' : 'down';
+            });
+        } catch (e) { console.error("價格更新失敗"); }
     }
 
-    // 開始掃描爆發
     async function scan() {
         if (!isRunning) return;
-        document.getElementById('status').innerText = `正在掃描全場幣種... 最後更新: ${new Date().toLocaleTimeString()}`;
+        document.getElementById('status').innerText = `正在掃描全場... 最後更新: ${new Date().toLocaleTimeString()}`;
         
         try {
             const res = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
             const all = await res.json();
-            // 排除你指定的幣種
+            // 排除你指定的 BTC, ETH, SOL, XRP, BNB, BNX
             const filtered = all.filter(c => !['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','BNBUSDT','BNXUSDT'].includes(c.symbol));
-            // 抓成交量前 100 名確保流動性
             const top100 = filtered.sort((a,b) => b.quoteVolume - a.quoteVolume).slice(0, 100);
 
             for (let coin of top100) {
-                // 如果已經在名單內，僅更新價格與評分
                 if (watchlistSymbols.has(coin.symbol)) {
                     document.getElementById(`price-${coin.symbol}`).innerText = coin.lastPrice;
                     const rs = (parseFloat(coin.priceChangePercent) - btcChange) * 10;
@@ -97,21 +94,19 @@
                     continue;
                 }
 
-                // 檢查 K 線爆發
                 const kRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${coin.symbol}&interval=1m&limit=2`);
                 const k = await kRes.json();
                 const k1_open = parseFloat(k[0][1]);
                 const k2_close = parseFloat(k[1][4]);
                 const growth = ((k2_close - k1_open) / k1_open) * 100;
 
-                // 觸發條件: 單根或雙根累計 > 1.5%
                 if (growth >= 1.5) {
                     watchlistSymbols.add(coin.symbol);
                     const rs = (parseFloat(coin.priceChangePercent) - btcChange) * 10;
                     const score = Math.floor(rs + 20);
                     
                     const row = `<tr>
-                        <td style="color:#888">${new Date().toLocaleTimeString()}</td>
+                        <td>${new Date().toLocaleTimeString()}</td>
                         <td><b>${coin.symbol.replace('USDT','')}</b></td>
                         <td class="up">+${growth.toFixed(2)}% <span class="trigger-tag">爆發</span></td>
                         <td><span id="score-${coin.symbol}" style="font-weight:bold; color:#f2a900">${score}</span></td>
@@ -120,20 +115,17 @@
                     document.getElementById('watchlist').insertAdjacentHTML('afterbegin', row);
                 }
             }
-        } catch (e) { console.error("掃描出錯", e); }
+        } catch (e) {}
     }
 
     function startMonitoring() {
         isRunning = true;
         document.getElementById('startBtn').disabled = true;
         document.getElementById('startBtn').innerText = "📡 監控進行中...";
-        // 立即執行一次掃描
-        scan();
-        // 設定循環
         setInterval(scan, 4000); 
+        scan();
     }
 
-    // 每一秒更新一次大盤價格
     setInterval(updateMarket, 2000);
     updateMarket();
 </script>
